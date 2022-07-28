@@ -104,8 +104,9 @@ static const char *log_severity_name(LogSeverity severity)
 class LogOutput
 {
 public:
-	LogOutput(const char *path, bool color);
-	LogOutput(std::ostream *stream, bool color);
+	LogOutput(const char *path);
+	LogOutput(std::ostream *stream);
+	LogOutput(std::function<void(LogSeverity, const std::string&)> callback);
 	LogOutput();
 	~LogOutput();
 
@@ -118,6 +119,7 @@ private:
 	void writeStream(const std::string &msg);
 
 	std::ostream *stream_;
+	std::function<void(LogSeverity, const std::string&)> callback_;
 	LoggingTarget target_;
 	bool color_;
 };
@@ -140,6 +142,15 @@ LogOutput::LogOutput(const char *path, bool color)
  */
 LogOutput::LogOutput(std::ostream *stream, bool color)
 	: stream_(stream), target_(LoggingTargetStream), color_(color)
+{
+}
+
+/**
+ * \brief Construct a log output based on a stream
+ * \param[in] stream Stream to send log output to
+ */
+LogOutput::LogOutput(std::function<void(LogSeverity, const std::string&)> callback)
+	: stream_(nullptr), callback_(callback), target_(LoggingTargetCallback)
 {
 }
 
@@ -177,6 +188,8 @@ bool LogOutput::isValid() const
 		return stream_->good();
 	case LoggingTargetStream:
 		return stream_ != nullptr;
+	case LoggingTargetCallback:
+		return bool(callback_);
 	default:
 		return true;
 	}
@@ -220,6 +233,7 @@ void LogOutput::write(const LogMessage &msg)
 	const char *resetColor = color_ ? kColorReset : "";
 	const char *severityColor = "";
 	LogSeverity severity = msg.severity();
+
 	std::string str;
 
 	if (color_) {
@@ -250,6 +264,15 @@ void LogOutput::write(const LogMessage &msg)
 		str += resetColor + msg.msg();
 		writeStream(str);
 		break;
+	case LoggingTargetCallback:
+		str = std::string(msg.category().name()) + " " + msg.fileInfo() + " "
+		    + msg.msg();
+		if (str.back() == '\n')
+		{
+			str.pop_back();
+		}
+		callback_(msg.severity(), str);
+		break;
 	default:
 		break;
 	}
@@ -268,6 +291,9 @@ void LogOutput::write(const std::string &str)
 	case LoggingTargetStream:
 	case LoggingTargetFile:
 		writeStream(str);
+		break;
+	case LoggingTargetCallback:
+		callback_(LogSeverity::LogInfo, str);
 		break;
 	default:
 		break;
@@ -303,6 +329,7 @@ public:
 	int logSetFile(const char *path, bool color);
 	int logSetStream(std::ostream *stream, bool color);
 	int logSetTarget(LoggingTarget target);
+	int logSetCallback(std::function<void(LogSeverity, const std::string&)> callback);
 	void logSetLevel(const char *category, const char *level);
 
 private:
@@ -409,6 +436,12 @@ int logSetStream(std::ostream *stream, bool color)
 int logSetTarget(LoggingTarget target)
 {
 	return Logger::instance()->logSetTarget(target);
+}
+
+
+int logSetCallback(std::function<void(LogSeverity, const std::string&)> callback)
+{
+	return Logger::instance()->logSetCallback(callback);
 }
 
 /**
@@ -547,10 +580,21 @@ int Logger::logSetTarget(enum LoggingTarget target)
 	case LoggingTargetNone:
 		std::atomic_store(&output_, std::shared_ptr<LogOutput>());
 		break;
+	case LoggingTargetCallback:
+		output = std::make_shared<LogOutput>();
+		std::atomic_store(&output_, output);
+		break;
 	default:
 		return -EINVAL;
 	}
 
+	return 0;
+}
+
+int Logger::logSetCallback(std::function<void(LogSeverity, const std::string&)> callback)
+{
+	std::shared_ptr<LogOutput> output = std::make_shared<LogOutput>(callback);
+	std::atomic_store(&output_, output);
 	return 0;
 }
 

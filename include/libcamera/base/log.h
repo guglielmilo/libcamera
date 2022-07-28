@@ -10,21 +10,14 @@
 #include <chrono>
 #include <sstream>
 
+#include <libcamera/logging.h>
+
 #include <libcamera/base/private.h>
 
 #include <libcamera/base/class.h>
 #include <libcamera/base/utils.h>
 
 namespace libcamera {
-
-enum LogSeverity {
-	LogInvalid = -1,
-	LogDebug = 0,
-	LogInfo,
-	LogWarning,
-	LogError,
-	LogFatal,
-};
 
 class LogCategory
 {
